@@ -10,6 +10,7 @@ import base64
 import traceback
 import requests
 
+# Load environment variables
 load_dotenv()
 
 app = Flask(__name__)
@@ -20,13 +21,15 @@ GMAIL_APP_PASSWORD = os.getenv('GMAIL_APP_PASSWORD')
 SUPERVISOR_EMAIL = os.getenv('SUPERVISOR_EMAIL')
 COMPANY_NAME = os.getenv('COMPANY_NAME', 'Plant Disease Detection System')
 PLANT_ID_API_KEY = os.getenv('PLANT_ID_API_KEY')
-CONFIDENCE_THRESHOLD = 0.85  # 85% confidence threshold
+CONFIDENCE_THRESHOLD = 0.85
 
 def analyze_plant_disease(image_data):
     try:
+        # Remove data URL prefix if present
         if ',' in image_data:
             image_data = image_data.split(',')[1]
 
+        # Prepare the data for the Plant.id API
         data = {
             'api_key': PLANT_ID_API_KEY,
             'images': [image_data],
@@ -45,7 +48,7 @@ def analyze_plant_disease(image_data):
             raise Exception(f"Plant.id API error: {response.text}")
 
         result = response.json()
-        print("Plant.id API Response:", result)  # Debug print
+        print("Plant.id API Response:", result)
 
         health_assessment = result.get('health_assessment', {})
         is_healthy = health_assessment.get('is_healthy', True)
@@ -56,7 +59,7 @@ def analyze_plant_disease(image_data):
             top_disease = diseases[0]
             probability = top_disease.get('probability', 0)
 
-            print(f"Detected disease: {top_disease.get('name')} with probability: {probability}")  # Debug print
+            print(f"Detected disease: {top_disease.get('name')} with probability: {probability}")
 
             # Only consider it diseased if probability is above threshold
             if probability >= CONFIDENCE_THRESHOLD:
@@ -66,7 +69,7 @@ def analyze_plant_disease(image_data):
                     'confidence': probability,
                     'description': top_disease.get('disease_details', {}).get('description', ''),
                     'treatment': top_disease.get('disease_details', {}).get('treatment', ''),
-                    'debug_info': {'raw_probability': probability}  # Debug info
+                    'debug_info': {'raw_probability': probability}
                 }
             else:
                 print(f"Disease detected but confidence ({probability}) below threshold ({CONFIDENCE_THRESHOLD})")
@@ -78,7 +81,7 @@ def analyze_plant_disease(image_data):
             'confidence': 1.0,
             'description': 'No significant disease symptoms detected or confidence level too low.',
             'treatment': 'No treatment needed at this time.',
-            'debug_info': {'is_healthy': is_healthy}  # Debug info
+            'debug_info': {'is_healthy': is_healthy}
         }
 
     except Exception as e:
@@ -166,16 +169,15 @@ def report_disease():
             response.status_code = 400
         else:
             try:
+                # Analyze the plant using Plant.id API
                 disease_info = analyze_plant_disease(image_data)
-                print(f"Analysis result: {disease_info}")  # Debug print
                 
-                # Only send email if confidence is above threshold
-                if disease_info['isDiseased'] and disease_info['confidence'] >= CONFIDENCE_THRESHOLD:
-                    print("Sending email alert...")  # Debug print
+                # Only send email if plant is diseased
+                if disease_info['isDiseased']:
                     send_email_alert(image_data, location, disease_info)
-                    message = f'Disease detected ({disease_info["disease"]}) with {disease_info["confidence"]*100:.1f}% confidence. Alert sent.'
+                    message = 'Disease detected and report sent'
                 else:
-                    message = 'Plant appears healthy or confidence too low. No alert needed.'
+                    message = 'Plant appears healthy, no alert needed'
                 
                 response = jsonify({
                     'success': True,
@@ -206,7 +208,15 @@ def report_disease():
     response.headers.add('Access-Control-Allow-Origin', '*')
     return response
 
+@app.route('/health', methods=['GET'])
+def health_check():
+    return jsonify({
+        'status': 'healthy',
+        'timestamp': datetime.now().isoformat()
+    })
+
 if __name__ == '__main__':
+    # Verify environment variables at startup
     print("Checking environment variables...")
     missing_vars = []
     if not GMAIL_USER: missing_vars.append('GMAIL_USER')
@@ -221,5 +231,6 @@ if __name__ == '__main__':
         print("Environment variables loaded successfully")
         print(f"Confidence threshold set to: {CONFIDENCE_THRESHOLD*100}%")
 
-    app.run(debug=os.getenv('FLASK_DEBUG', 'False').lower() == 'true',
-            port=int(os.getenv('PORT', 5000)))
+    # Get port from environment variable (Render sets this)
+    port = int(os.environ.get('PORT', 10000))
+    app.run(host='0.0.0.0', port=port)
