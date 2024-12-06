@@ -10,7 +10,6 @@ A web application that captures plant images, detects diseases using the Plant.i
 - Email notifications with detailed reports
 - Confidence threshold filtering (85%)
 - Local timezone support for timestamps
-- Google Maps integration for location viewing
 
 ## Live Demo
 [https://plant-disease-report.netlify.app](https://plant-disease-report.netlify.app)

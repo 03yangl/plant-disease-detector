@@ -27,7 +27,7 @@ CONFIDENCE_THRESHOLD = 0.85  # 85% confidence threshold
 ALLOWED_ORIGINS = [
     'http://localhost:5000',                    # Local development
     'http://localhost:3000',                    # Local development alternate
-    'https://your-app.netlify.app',            # Your Netlify domain
+    'https://plant-disease-report.netlify.app',            # Your Netlify domain
 ]
 
 def add_cors_headers(response, origin):
