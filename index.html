@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Plant Disease Detector</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
+    <style>
+        /* Previous styles remain the same */
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            padding: 20px;
+            max-width: 600px;
+            margin: 0 auto;
+            background-color: #f0f0f0;
+        }
+
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        h1 {
+            text-align: center;
+            margin-bottom: 20px;
+            color: #333;
+        }
+
+        .camera-container {
+            position: relative;
+            width: 100%;
+            aspect-ratio: 16/9;
+            background: #eee;
+            margin-bottom: 20px;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        #preview {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: none;
+        }
+
+        .camera-placeholder {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+        }
+
+        .camera-icon {
+            font-size: 48px;
+            margin-bottom: 10px;
+            color: #666;
+        }
+
+        .btn {
+            display: block;
+            width: 100%;
+            padding: 12px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-bottom: 10px;
+            font-size: 16px;
+        }
+
+        .btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+
+        .status {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 4px;
+            background: #f8f9fa;
+            border: 1px solid #ddd;
+            display: none;
+        }
+
+        #fileInput {
+            display: none;
+        }
+
+        .reset-btn {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(220, 53, 69, 0.9);
+            color: white;
+            border: none;
+            border-radius: 4px;
+            padding: 5px 10px;
+            cursor: pointer;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Plant Disease Detector</h1>
+        
+        <div class="camera-container">
+            <img id="preview" alt="Captured plant">
+            <button class="reset-btn" id="resetBtn">✕</button>
+            <div class="camera-placeholder">
+                <div class="camera-icon">📸</div>
+                <div>Tap to capture</div>
+            </div>
+        </div>
+
+        <input type="file" id="fileInput" accept="image/*" capture="environment">
+        <button id="locationBtn" class="btn">📍 Get Location</button>
+        <button id="submitBtn" class="btn" disabled>📤 Analyze & Send</button>
+        
+        <div class="status" id="statusBox"></div>
+    </div>
+
+    <script>
+        $(document).ready(function() {
+            let imageData = null;
+            let location = null;
+            let isProcessing = false;
+
+            $('.camera-container').click(function() {
+                if (!isProcessing) {
+                    $('#fileInput').click();
+                }
+            });
+
+            $('#fileInput').change(function(e) {
+                const file = e.target.files[0];
+                if (file) {
+                    const reader = new FileReader();
+                    reader.onload = function(e) {
+                        imageData = e.target.result;
+                        $('#preview').attr('src', imageData).show();
+                        $('.camera-placeholder').hide();
+                        $('#resetBtn').show();
+                        updateSubmitButton();
+                    };
+                    reader.readAsDataURL(file);
+                }
+            });
+
+            $('#resetBtn').click(function(e) {
+                e.stopPropagation();
+                resetForm();
+            });
+
+            $('#locationBtn').click(function() {
+                if (!isProcessing) {
+                    getLocation();
+                }
+            });
+
+            $('#submitBtn').click(function() {
+                if (!isProcessing) {
+                    processImage();
+                }
+            });
+
+            function getLocation() {
+                showStatus('Getting location...');
+                if (navigator.geolocation) {
+                    navigator.geolocation.getCurrentPosition(
+                        function(position) {
+                            location = {
+                                latitude: position.coords.latitude,
+                                longitude: position.coords.longitude
+                            };
+                            $('#locationBtn').text('📍 Location Acquired');
+                            showStatus('Location acquired successfully!');
+                            updateSubmitButton();
+                        },
+                        function(error) {
+                            showStatus('Error getting location: ' + error.message);
+                        }
+                    );
+                } else {
+                    showStatus('Geolocation is not supported by this browser');
+                }
+            }
+
+            async function processImage() {
+                if (!imageData || !location) {
+                    showStatus('Please capture an image and allow location access');
+                    return;
+                }
+
+                isProcessing = true;
+                $('#submitBtn').prop('disabled', true).text('Processing...');
+                showStatus('Analyzing image...');
+
+                try {
+                    const reportData = {
+                        image: imageData,
+                        location: location
+                    };
+
+                    const response = await fetch('http://localhost:5000/api/report-disease', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify(reportData)
+                    });
+
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+
+                    const result = await response.json();
+                    
+                    if (result.success) {
+                        showStatus('Report sent successfully!' + 
+                            (result.disease_info ? `\nDetected: ${result.disease_info.disease}` : ''));
+                        setTimeout(resetForm, 2000);
+                    } else {
+                        throw new Error(result.message || 'Failed to process report');
+                    }
+                } catch (error) {
+                    console.error('Error:', error);
+                    showStatus('Error: ' + error.message);
+                } finally {
+                    isProcessing = false;
+                    $('#submitBtn').prop('disabled', false).text('📤 Analyze & Send');
+                }
+            }
+
+            function updateSubmitButton() {
+                $('#submitBtn').prop('disabled', !(imageData && location));
+            }
+
+            function showStatus(message) {
+                $('#statusBox').text(message).show();
+            }
+
+            function resetForm() {
+                imageData = null;
+                $('#preview').attr('src', '').hide();
+                $('.camera-placeholder').show();
+                $('#resetBtn').hide();
+                $('#fileInput').val('');
+                $('#submitBtn').prop('disabled', true).text('📤 Analyze & Send');
+                $('#statusBox').hide();
+            }
+        });
+    </script>
+</body>
+</html>
