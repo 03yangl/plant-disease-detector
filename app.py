@@ -231,6 +231,6 @@ if __name__ == '__main__':
         print("Environment variables loaded successfully")
         print(f"Confidence threshold set to: {CONFIDENCE_THRESHOLD*100}%")
 
-    # Get port from environment variable (Render sets this)
-    port = int(os.environ.get('PORT', 10000))
+    # Use port 5000 explicitly
+    port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
