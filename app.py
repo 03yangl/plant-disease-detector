@@ -1,5 +1,6 @@
 from flask import Flask, request, jsonify, make_response
 from datetime import datetime
+import pytz
 import os
 from dotenv import load_dotenv
 import smtplib
@@ -21,15 +22,26 @@ GMAIL_APP_PASSWORD = os.getenv('GMAIL_APP_PASSWORD')
 SUPERVISOR_EMAIL = os.getenv('SUPERVISOR_EMAIL')
 COMPANY_NAME = os.getenv('COMPANY_NAME', 'Plant Disease Detection System')
 PLANT_ID_API_KEY = os.getenv('PLANT_ID_API_KEY')
-CONFIDENCE_THRESHOLD = 0.85
+CONFIDENCE_THRESHOLD = 0.85  # 85% confidence threshold
+
+ALLOWED_ORIGINS = [
+    'http://localhost:5000',                    # Local development
+    'http://localhost:3000',                    # Local development alternate
+    'https://your-app.netlify.app',            # Your Netlify domain
+]
+
+def add_cors_headers(response, origin):
+    if origin in ALLOWED_ORIGINS:
+        response.headers.add('Access-Control-Allow-Origin', origin)
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type')
+        response.headers.add('Access-Control-Allow-Methods', 'POST')
+    return response
 
 def analyze_plant_disease(image_data):
     try:
-        # Remove data URL prefix if present
         if ',' in image_data:
             image_data = image_data.split(',')[1]
 
-        # Prepare the data for the Plant.id API
         data = {
             'api_key': PLANT_ID_API_KEY,
             'images': [image_data],
@@ -74,7 +86,6 @@ def analyze_plant_disease(image_data):
             else:
                 print(f"Disease detected but confidence ({probability}) below threshold ({CONFIDENCE_THRESHOLD})")
 
-        # If healthy or confidence below threshold, return healthy status
         return {
             'isDiseased': False,
             'disease': 'Plant appears healthy',
@@ -96,7 +107,13 @@ def send_email_alert(image_data, location, disease_info):
         msg = MIMEMultipart()
         msg['From'] = GMAIL_USER
         msg['To'] = SUPERVISOR_EMAIL
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        # Convert UTC to Eastern Time
+        eastern = pytz.timezone('America/New_York')  # Change timezone as needed
+        utc_dt = datetime.utcnow()
+        local_dt = utc_dt.replace(tzinfo=pytz.utc).astimezone(eastern)
+        timestamp = local_dt.strftime("%Y-%m-%d %I:%M:%S %p %Z")
+
         msg['Subject'] = f'Plant Disease Alert - {timestamp}'
 
         html_content = f"""
@@ -141,12 +158,11 @@ def send_email_alert(image_data, location, disease_info):
 
 @app.route('/api/report-disease', methods=['POST', 'OPTIONS'])
 def report_disease():
+    origin = request.headers.get('Origin', '')
+    
     if request.method == 'OPTIONS':
         response = make_response()
-        response.headers.add('Access-Control-Allow-Origin', '*')
-        response.headers.add('Access-Control-Allow-Headers', 'Content-Type')
-        response.headers.add('Access-Control-Allow-Methods', 'POST')
-        return response
+        return add_cors_headers(response, origin)
 
     try:
         data = request.json
@@ -169,15 +185,15 @@ def report_disease():
             response.status_code = 400
         else:
             try:
-                # Analyze the plant using Plant.id API
                 disease_info = analyze_plant_disease(image_data)
+                print(f"Analysis result: {disease_info}")
                 
-                # Only send email if plant is diseased
-                if disease_info['isDiseased']:
+                if disease_info['isDiseased'] and disease_info['confidence'] >= CONFIDENCE_THRESHOLD:
+                    print("Sending email alert...")
                     send_email_alert(image_data, location, disease_info)
-                    message = 'Disease detected and report sent'
+                    message = f'Disease detected ({disease_info["disease"]}) with {disease_info["confidence"]*100:.1f}% confidence. Alert sent.'
                 else:
-                    message = 'Plant appears healthy, no alert needed'
+                    message = 'Plant appears healthy or confidence too low. No alert needed.'
                 
                 response = jsonify({
                     'success': True,
@@ -205,18 +221,9 @@ def report_disease():
         })
         response.status_code = 500
 
-    response.headers.add('Access-Control-Allow-Origin', '*')
-    return response
-
-@app.route('/health', methods=['GET'])
-def health_check():
-    return jsonify({
-        'status': 'healthy',
-        'timestamp': datetime.now().isoformat()
-    })
+    return add_cors_headers(response, origin)
 
 if __name__ == '__main__':
-    # Verify environment variables at startup
     print("Checking environment variables...")
     missing_vars = []
     if not GMAIL_USER: missing_vars.append('GMAIL_USER')
@@ -231,6 +238,5 @@ if __name__ == '__main__':
         print("Environment variables loaded successfully")
         print(f"Confidence threshold set to: {CONFIDENCE_THRESHOLD*100}%")
 
-    # Use port 5000 explicitly
-    port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port)
+    app.run(debug=os.getenv('FLASK_DEBUG', 'False').lower() == 'true',
+            port=int(os.getenv('PORT', 5000)))
